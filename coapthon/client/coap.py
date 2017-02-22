@@ -23,10 +23,11 @@ logger = logging.getLogger(__name__)
 
 
 class CoAP(object):
-    def __init__(self, server, starting_mid, callback, sock=None):
+    def __init__(self, server, starting_mid, callback, ob_callback, sock=None):
         self._currentMID = starting_mid
         self._server = server
         self._callback = callback
+        self._ob_callback = ob_callback
         self.stopped = threading.Event()
         self.to_be_stopped = []
 
@@ -196,7 +197,7 @@ class CoAP(object):
                     ack.type = defines.Types['ACK']
                     ack = self._messageLayer.send_empty(transaction, transaction.response, ack)
                     self.send_datagram(ack)
-                    self._callback(transaction.response)
+                    self._ob_callback(transaction.response)
                 else:
                     self._callback(transaction.response)
             elif isinstance(message, Message):

@@ -13,20 +13,31 @@ __author__ = 'Giacomo Tanganelli'
 class HelperClient(object):
     def __init__(self, server, sock=None):
         self.server = server
-        self.protocol = CoAP(self.server, random.randint(1, 65535), self._wait_response, sock=sock)
+        self.protocol = CoAP(self.server, random.randint(1, 65535), self._wait_response, self._wait_notification, sock=sock)
         self.queue = Queue()
+        self.ob_queue = Queue()
 
     def _wait_response(self, message):
         if message.code != defines.Codes.CONTINUE.number:
             self.queue.put(message)
 
+    def _wait_notification(self, message):
+        self.ob_queue.put(message)
+
     def stop(self):
         self.protocol.stopped.set()
         self.queue.put(None)
+        self.ob_queue.put(None)
         self.protocol.close()
 
     def close(self):
         self.stop()
+
+    def _ob_thread_body(self, request, callback):
+        self.protocol.send_message(request)
+        while not self.protocol.stopped.isSet():
+            response = self.ob_queue.get(block=True)
+            callback(response)
 
     def _thread_body(self, request, callback):
         self.protocol.send_message(request)
@@ -52,6 +63,7 @@ class HelperClient(object):
 
     def observe(self, path, callback, timeout=None):  # pragma: no cover
         request = self.mk_request(defines.Codes.GET, path)
+        request.token = generate_random_token(2)
         request.observe = 0
 
         return self.send_request(request, callback, timeout)
@@ -81,7 +93,10 @@ class HelperClient(object):
 
     def send_request(self, request, callback=None, timeout=None):  # pragma: no cover
         if callback is not None:
-            thread = threading.Thread(target=self._thread_body, args=(request, callback))
+            if request.observe == 0:
+                thread = threading.Thread(target=self._ob_thread_body, args=(request, callback))
+            else:
+                thread = threading.Thread(target=self._thread_body, args=(request, callback))
             thread.start()
         else:
             self.protocol.send_message(request)
